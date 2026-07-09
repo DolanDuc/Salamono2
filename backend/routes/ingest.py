@@ -133,9 +133,16 @@ def _resolve_marker_zones(zones, markers, camera_id: str,
     """
     by_id = {m.marker_id: m for m in markers}
     resolved = []
+    dbg_lines = []
+    dbg_lines.append(
+        f"[resolver] zones={len(zones)} markers_ids={list(by_id.keys())} "
+        f"frame={frame_w}x{frame_h}"
+    )
     for z in zones:
         if not z.marker_ids:
             resolved.append(z)
+            dbg_lines.append(f"[resolver] PASS-THROUGH id={z.id} name={z.name!r} "
+                             f"regular polygon_len={len(z.polygon)}")
             continue
         centres = []
         all_visible = True
@@ -150,15 +157,39 @@ def _resolve_marker_zones(zones, markers, camera_id: str,
         if all_visible:
             cache[cache_key] = (centres, now)
             polygon = centres
+            dbg_lines.append(
+                f"[resolver] RESOLVED id={z.id} name={z.name!r} "
+                f"want={list(z.marker_ids)} centres_len={len(centres)}"
+            )
         else:
             cached = cache.get(cache_key)
             if cached and (now - cached[1]) < MARKER_ZONE_CACHE_TTL:
                 polygon = cached[0]
+                dbg_lines.append(
+                    f"[resolver] CACHE-HIT id={z.id} want={list(z.marker_ids)} "
+                    f"age={now - cached[1]:.2f}s"
+                )
             else:
+                dbg_lines.append(
+                    f"[resolver] DROPPED id={z.id} name={z.name!r} "
+                    f"want={list(z.marker_ids)} visible={list(by_id.keys())} "
+                    f"cache_present={cache_key in cache}"
+                )
                 continue
-        z_copy = z.model_copy()
-        z_copy.polygon = polygon
-        resolved.append(z_copy)
+        try:
+            z_copy = z.model_copy()
+            z_copy.polygon = polygon
+            resolved.append(z_copy)
+            dbg_lines.append(
+                f"[resolver] APPENDED id={z_copy.id} polygon_len={len(z_copy.polygon)} "
+                f"active={z_copy.active}"
+            )
+        except Exception as exc:
+            dbg_lines.append(f"[resolver] COPY-FAIL id={z.id} exc={exc!r}")
+    # Only log when there's a marker-zone involved, otherwise Railway logs
+    # explode at 10fps × normal traffic.
+    if any(z.marker_ids for z in zones):
+        print("\n".join(dbg_lines), flush=True)
     return resolved
 
 
