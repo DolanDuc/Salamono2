@@ -438,6 +438,10 @@ def _annotate_ppe(frame: np.ndarray, detections: list[Detection],
 
 async def _handle_site(request: Request, frame: np.ndarray, now: float,
                         t0: float, camera_id: str) -> FrameResultOut:
+    # DEBUG canary — if this line never appears in Railway logs even though
+    # POST /api/frame returns 200, then Railway is running a stale image
+    # that predates the resolver code.
+    print(f"[site] handling frame cam={camera_id} at {now:.1f}", flush=True)
     detector = request.app.state.detector
     danger_detector = request.app.state.danger_detector
     temporal_filter = request.app.state.temporal_filter

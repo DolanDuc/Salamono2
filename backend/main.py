@@ -30,8 +30,16 @@ PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "")
 PUBLIC_PATHS = {"/api/health"}
 
 
+print("=" * 60, flush=True)
+print("SALAMONO BUILD MARKER: debug/resolver-print @ 2026-07-09T18:00", flush=True)
+print("If you don't see this line in Railway logs after redeploy,", flush=True)
+print("Railway is serving a stale Docker image (build cache).", flush=True)
+print("=" * 60, flush=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print("[startup] lifespan starting — loading YOLO detector", flush=True)
     app.state.detector = Detector()
     app.state.danger_detector = DangerDetector()
     app.state.temporal_filter = TemporalFilter(
