@@ -323,7 +323,8 @@
         const time = data.timestamp ?
             new Date(data.timestamp * 1000).toLocaleTimeString("pl-PL") : "—";
         const activeAlarm = !!State.activeAlarm;
-        liveText.textContent = (activeAlarm ? "ALARM" : "LIVE") + " · KAM-01 · " + time;
+        const cam = data.camera_id || "KAM-01";
+        liveText.textContent = (activeAlarm ? "ALARM" : "LIVE") + " · " + cam + " · " + time;
 
         const markers = (data.markers || []).length;
         State.lastMarkerCount = markers;

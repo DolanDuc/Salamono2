@@ -71,6 +71,14 @@ async def create_calibration(
     return _to_out(cal)
 
 
+@router.get("/calibration")
+async def list_calibrations(request: Request):
+    """All calibrated cameras — the site map view uses this to label
+    cameras and pick the reference-rectangle scale."""
+    cals = request.app.state.calibration_store.all()
+    return {"calibrations": [_to_out(c).model_dump() for c in cals]}
+
+
 @router.get("/calibration/{camera_id}", response_model=CalibrationOut)
 async def get_calibration(request: Request, camera_id: str):
     cal = request.app.state.calibration_store.get(camera_id)

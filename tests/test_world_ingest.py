@@ -162,6 +162,24 @@ async def test_no_alarm_when_person_outside_world_zone():
 
 
 @pytest.mark.asyncio
+async def test_world_state_endpoint_and_calibration_list():
+    _seed_calibrations_and_zone()
+    async with _client() as c:
+        r = await c.get("/api/calibration")
+        assert r.status_code == 200
+        cams = {c_["camera_id"] for c_ in r.json()["calibrations"]}
+        assert cams == {"cam_a", "cam_b"}
+
+        await _post_frame(c, "cam_a")
+        rs = await c.get("/api/world/state")
+        assert rs.status_code == 200
+        body = rs.json()
+        assert len(body["persons"]) == 1
+        assert body["zones"][0]["id"] == "wz1"
+        assert {cm["camera_id"] for cm in body["cameras"]} == {"cam_a", "cam_b"}
+
+
+@pytest.mark.asyncio
 async def test_per_camera_debug_inject():
     app.state.detector.detect.side_effect = lambda _f: []
     async with _client() as c:

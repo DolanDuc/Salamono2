@@ -114,6 +114,17 @@
             <button type="button" class="px-btn px-btn--link" id="snapshotBtn">Zrzut klatki</button>
         </div>
 
+        <div class="px-card hidden" id="siteMapCard" style="margin-top:12px">
+            <div class="px-card-hd">
+                <span class="px-card-title">Mapa placu — fuzja kamer</span>
+                <span class="px-mono" style="color:var(--ink-3);font-size:12px" id="siteMapMeta">—</span>
+            </div>
+            <canvas id="siteMapCanvas" style="width:100%;display:block;border-radius:6px"></canvas>
+            <span class="px-card-hint">
+                Pozycje osób w metrach, sfuzowane ze wszystkich skalibrowanych kamer (te same 4 markery ArUco).
+            </span>
+        </div>
+
     </section>
 
     <aside class="px-col-right">
@@ -205,6 +216,7 @@
 
 <script src="app.js"></script>
 <script src="zones.js"></script>
+<script src="map.js"></script>
 <script>
   document.addEventListener("DOMContentLoaded", () => {
     if (window.lucide) window.lucide.createIcons();

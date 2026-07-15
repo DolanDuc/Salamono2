@@ -16,7 +16,16 @@ from backend.frame_store import FrameStore
 from backend.marker_detector import MarkerDetector
 from backend.models import StatsOut
 from backend.ppe_rules import PPEChecker
-from backend.routes import alerts, calibration, debug, ingest, pair, ws, zones
+from backend.routes import (
+    alerts,
+    calibration,
+    debug,
+    ingest,
+    pair,
+    world,
+    ws,
+    zones,
+)
 from backend.world_state import (
     WorldState,
     WorldZoneDetector,
@@ -159,6 +168,7 @@ app.include_router(zones.router, prefix="/api")
 app.include_router(calibration.router, prefix="/api")
 app.include_router(debug.router, prefix="/api")
 app.include_router(pair.router, prefix="/api")
+app.include_router(world.router, prefix="/api")
 app.include_router(ws.router)
 
 
