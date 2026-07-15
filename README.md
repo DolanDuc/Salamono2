@@ -51,6 +51,47 @@ python tools/simulate_phone.py --video wideo.mp4 --fps 2 --loop
 **Lub uzyj telefonu:** Otworz `http://<adres-serwera>:8000/phone/capture.html`
 na telefonie w tej samej sieci.
 
+## Multi-camera: wspolne strefy + fuzja pozycji
+
+Kilka kamer z roznych katow patrzy na te same strefy — pozycje osob sa
+fuzowane we wspolnym ukladzie metrycznym (dokladniejsza odleglosc, jeden
+alarm zamiast N).
+
+**Procedura (te same 4 markery ArUco dla wszystkich kamer):**
+
+1. Rozloz 4 markery (np. ID 10, 20, 30, 40) w rogach obszaru
+   referencyjnego o znanych wymiarach (np. 3×3 m).
+2. Skalibruj KAZDY telefon/kamere osobno na `/calibrate.html`
+   (albo `POST /api/calibration/{camera_id}`) — kazda kamera dostaje
+   wlasna homografie do TEJ SAMEJ plaszczyzny metrycznej.
+3. Zaloz strefe world-space (metry, klucz `_site`):
+
+```bash
+curl -X PUT http://localhost:8000/api/zones/_site \
+  -H "Content-Type: application/json" \
+  -d '{"zones":[{"name":"Wykop","severity":"DANGER",
+       "coordinate_space":"world",
+       "polygon":[[1.0,1.0],[4.0,1.0],[4.0,3.0],[1.0,3.0]]}]}'
+```
+
+4. Panel pokaze karte **Mapa placu** — widok z gory: strefy w metrach,
+   sfuzowane kropki osob (badge = liczba kamer, czerwona przy breachu).
+
+**Uwagi:**
+- Strefy trzymaj blisko prostokata referencyjnego — blad homografii
+  rosnie z odlegloscia od markerow. Prog klastrowania:
+  `WORLD_ASSOC_THRESHOLD_M` (domyslnie 0.7 m; na duzych dystansach 1.0).
+- Kamery moga byc niezsynchronizowane (skew ~0.5 s jest OK — TTL fuzji
+  liczy sie po czasie serwera).
+- Alarm multi-cam ma `kind=world_zone_breach`, `camera_id=site`,
+  kamery zrodlowe w `details.cameras` — jeden rekord niezaleznie od
+  liczby kamer.
+
+**Proba generalna bez sprzetu** (syntetyczne markery + 2 wirtualne kamery):
+```bash
+python tools/simulate_two_cameras.py --server http://localhost:8000
+```
+
 ## Konfiguracja
 
 Parametry mozna ustawic przez zmienne srodowiskowe:
@@ -97,6 +138,10 @@ albo per-user access tokens.
 |---|---|---|
 | `/api/frame` | POST | Wyslij klatke (multipart: image + camera_id) |
 | `/api/alerts` | GET | Historia alarmow |
+| `/api/zones/{camera_id}` | GET/PUT/DELETE | Strefy per kamera (`_site` = world-space, metry) |
+| `/api/calibration` | GET | Lista skalibrowanych kamer |
+| `/api/calibration/{camera_id}` | POST/GET/DELETE | Kalibracja kamery z 4 markerow |
+| `/api/world/state` | GET | Sfuzowany stan placu (osoby w metrach, strefy, kamery) |
 | `/api/stats` | GET | Statystyki systemu |
 | `/api/health` | GET | Health check |
 | `/ws/live` | WebSocket | Stream wynikow do panelu |

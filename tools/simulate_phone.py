@@ -24,6 +24,10 @@ def main():
                         help="Loop video continuously")
     parser.add_argument("--camera-id", default="simulator",
                         help="Camera ID to send")
+    parser.add_argument("--timestamp-offset", type=float, default=0.0,
+                        help="Seconds added to sent timestamps — simulates "
+                             "phone clock skew (fusion must tolerate it, "
+                             "TTL runs on server time)")
     args = parser.parse_args()
 
     cap = cv2.VideoCapture(args.video)
@@ -69,7 +73,7 @@ def main():
                 files={"image": ("frame.jpg", jpeg.tobytes(), "image/jpeg")},
                 data={
                     "camera_id": args.camera_id,
-                    "timestamp": str(time.time()),
+                    "timestamp": str(time.time() + args.timestamp_offset),
                 },
                 timeout=10,
             )
