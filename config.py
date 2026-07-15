@@ -35,11 +35,20 @@ class PPEConfig:
 
 
 @dataclass
+class WorldConfig:
+    """Multi-camera ground-plane fusion (wspólny układ z markerów ArUco)."""
+    assoc_threshold_m: float = 0.7    # cluster obs from different cameras
+    id_match_threshold_m: float = 0.9  # inherit fused_id from previous tick
+    obs_ttl_sec: float = 1.5          # drop camera obs older than this
+
+
+@dataclass
 class AppConfig:
     yolo: YOLOConfig = field(default_factory=YOLOConfig)
     danger: DangerConfig = field(default_factory=DangerConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)
     ppe: PPEConfig = field(default_factory=PPEConfig)
+    world: WorldConfig = field(default_factory=WorldConfig)
     flagged_frames_dir: str = "data/flagged_frames"
     host: str = "0.0.0.0"
     port: int = 8000
@@ -69,6 +78,10 @@ def _from_env() -> AppConfig:
         cfg.ppe.min_person_height_frac = float(v)
     if v := os.getenv("PPE_COOLDOWN_SEC"):
         cfg.ppe.entry_cooldown_sec = float(v)
+    if v := os.getenv("WORLD_ASSOC_THRESHOLD_M"):
+        cfg.world.assoc_threshold_m = float(v)
+    if v := os.getenv("WORLD_OBS_TTL_SEC"):
+        cfg.world.obs_ttl_sec = float(v)
     if v := os.getenv("SERVER_PORT"):
         cfg.port = int(v)
     return cfg
