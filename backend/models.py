@@ -84,10 +84,33 @@ class ActiveZoneOut(BaseModel):
     marker_ids: list[int] = []
 
 
+class WorldPersonOut(BaseModel):
+    """Person position fused across cameras, in metres on the shared
+    calibration plane. `cameras` lists the sources that saw them."""
+    fused_id: str
+    x_m: float
+    y_m: float
+    confidence: float
+    cameras: list[str]
+
+
+class WorldZoneBreachOut(BaseModel):
+    """Breach of a world-space zone by a fused person — one record per
+    breach regardless of how many cameras observed it."""
+    id: str
+    zone_id: str
+    zone_name: str
+    severity: AlertSeverity
+    person: WorldPersonOut
+    timestamp: float
+    frame_thumbnail_url: str | None = None
+
+
 class FrameResultOut(BaseModel):
     frame_id: int
     timestamp: float
     mode: str = "site"               # "site" or "checkpoint"
+    camera_id: str = "cam_default"
     detections: list[DetectionOut]
     active_dangers: list[AlertOut] = []
     confirmed_alerts: list[AlertOut] = []
@@ -98,6 +121,10 @@ class FrameResultOut(BaseModel):
     person_distances: list[PersonDistanceOut] = []
     active_zones: list[ActiveZoneOut] = []
     calibration_active: bool = False
+    # Multi-camera fusion (empty when no calibration / world zones):
+    world_persons: list[WorldPersonOut] = []
+    world_zones: list[ActiveZoneOut] = []          # polygons in metres
+    confirmed_world_breaches: list[WorldZoneBreachOut] = []
     frame_jpeg_b64: str
     processing_ms: float
 

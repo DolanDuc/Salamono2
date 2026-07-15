@@ -20,6 +20,10 @@ class InjectPersonPayload(BaseModel):
     frames: int = Field(default=10, ge=1, le=1000)
     # detection confidence to report
     confidence: float = Field(default=0.9, ge=0.0, le=1.0)
+    # None → inject into frames from ANY camera (legacy behaviour).
+    # Set to inject only into one camera — arm several cameras at once to
+    # rehearse multi-camera fusion without two people on site.
+    camera_id: str | None = None
 
 
 def _validate_box(box: list[float]) -> None:
@@ -35,13 +39,20 @@ def _validate_box(box: list[float]) -> None:
 @router.post("/debug/inject-person")
 async def inject_person(request: Request, payload: InjectPersonPayload):
     _validate_box(payload.box_norm)
-    request.app.state.debug_inject_person = {
+    # State is a dict keyed by camera_id ("*" = any camera). Posting for a
+    # new key ADDS an injection instead of replacing the others, so cam_a
+    # and cam_b can be armed simultaneously.
+    key = payload.camera_id or "*"
+    state = getattr(request.app.state, "debug_inject_person", None) or {}
+    state[key] = {
         "box_norm": list(payload.box_norm),
         "remaining": payload.frames,
         "confidence": payload.confidence,
     }
+    request.app.state.debug_inject_person = state
     return {
         "status": "armed",
+        "camera_id": payload.camera_id,
         "box_norm": payload.box_norm,
         "frames": payload.frames,
     }
@@ -52,10 +63,15 @@ async def inject_person_status(request: Request):
     state = getattr(request.app.state, "debug_inject_person", None)
     if not state:
         return {"status": "idle"}
+    first = next(iter(state.values()))
     return {
         "status": "armed",
-        "remaining": state["remaining"],
-        "box_norm": state["box_norm"],
+        "remaining": first["remaining"],
+        "box_norm": first["box_norm"],
+        "injections": {
+            cam: {"remaining": s["remaining"], "box_norm": s["box_norm"]}
+            for cam, s in state.items()
+        },
     }
 
 

@@ -17,6 +17,11 @@ from backend.marker_detector import MarkerDetector
 from backend.models import StatsOut
 from backend.ppe_rules import PPEChecker
 from backend.routes import alerts, calibration, debug, ingest, pair, ws, zones
+from backend.world_state import (
+    WorldState,
+    WorldZoneDetector,
+    WorldZoneTemporalFilter,
+)
 from backend.ws_manager import ConnectionManager
 from backend.zone_rules import ZoneBreachDetector, ZoneTemporalFilter
 from backend.zones_store import ZoneStore
@@ -70,6 +75,13 @@ async def lifespan(app: FastAPI):
     )
     app.state.marker_detector = MarkerDetector()
     app.state.calibration_store = CalibrationStore(CALIBRATION_PATH)
+    # Multi-camera ground-plane fusion (see backend/world_state.py).
+    app.state.world_state = WorldState()
+    app.state.world_zone_detector = WorldZoneDetector()
+    app.state.world_zone_filter = WorldZoneTemporalFilter(
+        required=CONFIG.danger.consecutive_frames_required,
+        cooldown_sec=CONFIG.danger.cooldown_seconds,
+    )
     # In-memory cache of last-seen polygon per marker-defined zone.
     # Format: {(camera_id, zone_id): (polygon_normalized, last_seen_ts)}
     app.state.marker_zone_cache = {}

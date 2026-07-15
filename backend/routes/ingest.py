@@ -20,9 +20,12 @@ from backend.models import (
     MarkerDetectionOut,
     PersonDistanceOut,
     PPECheckOut,
+    WorldPersonOut,
+    WorldZoneBreachOut,
     ZoneBreachOut,
 )
 from backend.ppe_rules import PPEEvent
+from backend.world_state import FusedPerson, WorldObservation, WorldZoneBreachEvent
 from backend.zone_rules import ZoneBreachEvent
 
 SITE_RULE_DESCRIPTIONS = {
@@ -70,6 +73,30 @@ def _zone_record(breach: ZoneBreachOut, camera_id: str) -> AlarmRecord:
             "zone_name": breach.zone_name,
             "person_confidence": breach.person.confidence,
             "person_box": breach.person.box,
+        },
+    )
+
+
+def _world_zone_record(breach: WorldZoneBreachOut) -> AlarmRecord:
+    """One record per fused breach — camera_id is the whole site, source
+    cameras land in details (dedupe between cameras is structural)."""
+    return AlarmRecord(
+        id=breach.id,
+        timestamp=breach.timestamp,
+        mode="site",
+        kind="world_zone_breach",
+        severity=breach.severity,
+        rule_name="world_zone_" + breach.zone_id,
+        description=f"Wejscie w strefe (multi-cam): {breach.zone_name}",
+        camera_id="site",
+        thumbnail_url=breach.frame_thumbnail_url,
+        details={
+            "zone_id": breach.zone_id,
+            "zone_name": breach.zone_name,
+            "cameras": breach.person.cameras,
+            "x_m": breach.person.x_m,
+            "y_m": breach.person.y_m,
+            "fused_id": breach.person.fused_id,
         },
     )
 
@@ -187,6 +214,49 @@ def _person_distances(persons: list[Detection],
             inside=d <= 0.0,
         ))
     return out
+
+
+def _world_observations(persons: list[Detection],
+                        calibration: Calibration,
+                        camera_id: str,
+                        server_now: float) -> list[WorldObservation]:
+    """Project person foot points through the camera homography into the
+    shared metric plane."""
+    out: list[WorldObservation] = []
+    for p in persons:
+        x1, y1, x2, y2 = p.box
+        wx, wy = calibration.project((x1 + x2) / 2.0, float(y2))
+        out.append(WorldObservation(
+            camera_id=camera_id,
+            x_m=wx, y_m=wy,
+            confidence=p.confidence,
+            ts=server_now,
+            box=p.box,
+        ))
+    return out
+
+
+def _fused_to_out(p: FusedPerson) -> WorldPersonOut:
+    return WorldPersonOut(
+        fused_id=p.fused_id,
+        x_m=round(p.x_m, 2),
+        y_m=round(p.y_m, 2),
+        confidence=round(p.confidence, 3),
+        cameras=list(p.cameras),
+    )
+
+
+def _world_breach_to_out(e: WorldZoneBreachEvent, breach_id: str,
+                         thumb_url: str | None = None) -> WorldZoneBreachOut:
+    return WorldZoneBreachOut(
+        id=breach_id,
+        zone_id=e.zone.id,
+        zone_name=e.zone.name,
+        severity=AlertSeverity(e.severity),
+        person=_fused_to_out(e.person),
+        timestamp=e.frame_timestamp,
+        frame_thumbnail_url=thumb_url,
+    )
 
 
 def _annotate_markers(frame: np.ndarray,
@@ -422,7 +492,10 @@ async def _handle_site(request: Request, frame: np.ndarray, now: float,
 
     # Debug: inject a synthetic person into the detection list for N frames.
     # Adam wanted to test the alarm without physically walking into the zone.
-    inj = request.app.state.debug_inject_person
+    # State is a dict keyed by camera_id ("*" = any camera) so several
+    # cameras can be armed at once — see backend/routes/debug.py.
+    inj_map = request.app.state.debug_inject_person or {}
+    inj = inj_map.get(camera_id) or inj_map.get("*")
     if inj and inj.get("remaining", 0) > 0:
         fh_i, fw_i = frame.shape[:2]
         x1n, y1n, x2n, y2n = inj["box_norm"]
@@ -437,7 +510,10 @@ async def _handle_site(request: Request, frame: np.ndarray, now: float,
         detections.append(fake)
         inj["remaining"] -= 1
         if inj["remaining"] <= 0:
-            request.app.state.debug_inject_person = None
+            for k in [k for k, v in inj_map.items() if v is inj]:
+                del inj_map[k]
+            if not inj_map:
+                request.app.state.debug_inject_person = None
 
     raw_dangers = danger_detector.evaluate(detections, now)
     confirmed = temporal_filter.update(raw_dangers, now)
@@ -467,6 +543,46 @@ async def _handle_site(request: Request, frame: np.ndarray, now: float,
     calibration_ids = set(calibration.marker_ids) if calibration else set()
     annotated = _annotate_markers(annotated, markers, calibration_ids)
     annotated = _annotate_person_distances(annotated, person_distances)
+
+    # --- Multi-camera ground-plane fusion --------------------------------
+    # Only when this camera is calibrated: project persons into the shared
+    # metric plane, fuse with other cameras' fresh observations and evaluate
+    # world-space zones ONCE (structural dedupe — no double alarms).
+    # TTL runs on SERVER time; phone timestamps are not trusted.
+    world_person_outs: list[WorldPersonOut] = []
+    world_zones_out: list[ActiveZoneOut] = []
+    world_breach_outs: list[WorldZoneBreachOut] = []
+    if calibration is not None:
+        world_state = request.app.state.world_state
+        server_now = time.time()
+        world_state.update(
+            camera_id,
+            _world_observations(persons, calibration, camera_id, server_now),
+            server_now,
+        )
+        fused = world_state.fuse(server_now)
+        world_person_outs = [_fused_to_out(p) for p in fused]
+        site_zones = [z for z in zone_store.for_camera("_site")
+                      if z.coordinate_space == "world"]
+        world_zones_out = [
+            ActiveZoneOut(id=z.id, name=z.name, severity=z.severity,
+                          polygon=z.polygon)
+            for z in site_zones if z.active and len(z.polygon) >= 3
+        ]
+        if site_zones:
+            raw_world = request.app.state.world_zone_detector.evaluate(
+                fused, site_zones, now,
+            )
+            confirmed_world = request.app.state.world_zone_filter.update(
+                raw_world, server_now,
+            )
+            for wevt in confirmed_world:
+                wid = uuid.uuid4().hex[:8]
+                thumb_url = frame_store.save(annotated, wid)
+                wout = _world_breach_to_out(wevt, wid, thumb_url)
+                world_breach_outs.append(wout)
+                alert_store.append(_world_zone_record(wout))
+    # ---------------------------------------------------------------------
 
     alert_outs = []
     for evt in confirmed:
@@ -512,6 +628,7 @@ async def _handle_site(request: Request, frame: np.ndarray, now: float,
         frame_id=request.app.state.frame_counter,
         timestamp=now,
         mode="site",
+        camera_id=camera_id,
         detections=[_det_to_out(d) for d in detections],
         active_dangers=active_outs,
         confirmed_alerts=alert_outs,
@@ -521,6 +638,9 @@ async def _handle_site(request: Request, frame: np.ndarray, now: float,
         person_distances=person_distances,
         active_zones=active_zones_out,
         calibration_active=calibration is not None,
+        world_persons=world_person_outs,
+        world_zones=world_zones_out,
+        confirmed_world_breaches=world_breach_outs,
         frame_jpeg_b64=b64,
         processing_ms=round(processing_ms, 1),
     )
@@ -559,6 +679,7 @@ async def _handle_checkpoint(request: Request, frame: np.ndarray, now: float,
         frame_id=request.app.state.frame_counter,
         timestamp=now,
         mode="checkpoint",
+        camera_id=camera_id,
         detections=[_det_to_out(d) for d in detections],
         ppe_checks=check_outs,
         frame_jpeg_b64=b64,
