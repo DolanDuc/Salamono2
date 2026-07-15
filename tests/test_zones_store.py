@@ -27,6 +27,28 @@ class TestZoneModel:
     def test_unique_ids(self):
         assert Zone().id != Zone().id
 
+    def test_coordinate_space_defaults_to_image(self):
+        assert Zone().coordinate_space == "image"
+
+    def test_legacy_json_without_coordinate_space_loads(self):
+        # Zones persisted before the field existed must load as "image".
+        z = Zone.model_validate({
+            "id": "abcd1234", "name": "Stara", "severity": "DANGER",
+            "polygon": SQUARE, "marker_ids": [], "active": True,
+            "created_at": 1.0,
+        })
+        assert z.coordinate_space == "image"
+
+    def test_world_zone_roundtrip(self, tmp_path):
+        path = str(tmp_path / "z.json")
+        store = ZoneStore(path)
+        z = Zone(name="Wykop", coordinate_space="world",
+                 polygon=[[1.0, 1.0], [4.0, 1.0], [4.0, 3.0], [1.0, 3.0]])
+        store.replace("_site", [z])
+        loaded = ZoneStore(path).for_camera("_site")
+        assert loaded[0].coordinate_space == "world"
+        assert loaded[0].polygon == [[1.0, 1.0], [4.0, 1.0], [4.0, 3.0], [1.0, 3.0]]
+
 
 class TestZoneStore:
     def test_empty_for_unknown_camera(self, tmp_path):

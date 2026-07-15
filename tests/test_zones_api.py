@@ -125,6 +125,80 @@ async def test_reject_polygon_with_too_few_vertices():
 
 
 @pytest.mark.asyncio
+async def test_world_zone_roundtrip_site():
+    async with _client() as c:
+        payload = {"zones": [{
+            "name": "Wykop world", "severity": "DANGER",
+            "coordinate_space": "world",
+            "polygon": [[1.0, 1.0], [4.0, 1.0], [4.0, 3.0], [1.0, 3.0]],
+        }]}
+        r = await c.put("/api/zones/_site", json=payload)
+        assert r.status_code == 200
+        saved = r.json()["zones"][0]
+        assert saved["coordinate_space"] == "world"
+        assert saved["polygon"] == [[1.0, 1.0], [4.0, 1.0], [4.0, 3.0], [1.0, 3.0]]
+
+        r2 = await c.get("/api/zones/_site")
+        assert r2.json()["zones"][0]["coordinate_space"] == "world"
+
+
+@pytest.mark.asyncio
+async def test_world_zone_accepts_metres_beyond_unit_range():
+    # Metre coordinates >1 must NOT be rejected by the 0..1 image check.
+    async with _client() as c:
+        r = await c.put("/api/zones/_site", json={"zones": [{
+            "name": "Daleka", "severity": "WARNING",
+            "coordinate_space": "world",
+            "polygon": [[-2.0, 0.0], [10.0, 0.0], [10.0, 8.5]],
+        }]})
+        assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_world_zone_rejects_out_of_range_metres():
+    async with _client() as c:
+        r = await c.put("/api/zones/_site", json={"zones": [{
+            "name": "Bad", "severity": "DANGER",
+            "coordinate_space": "world",
+            "polygon": [[0.0, 0.0], [999.0, 0.0], [999.0, 5.0]],
+        }]})
+        assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_world_zone_rejects_marker_ids():
+    async with _client() as c:
+        r = await c.put("/api/zones/_site", json={"zones": [{
+            "name": "Bad", "severity": "DANGER",
+            "coordinate_space": "world",
+            "polygon": [[0.0, 0.0], [3.0, 0.0], [3.0, 3.0]],
+            "marker_ids": [10, 20, 30, 40],
+        }]})
+        assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_reject_unknown_coordinate_space():
+    async with _client() as c:
+        r = await c.put("/api/zones/cam_bad", json={"zones": [{
+            "name": "Bad", "severity": "DANGER",
+            "coordinate_space": "galactic", "polygon": SQUARE,
+        }]})
+        assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_image_zone_still_rejects_metres():
+    # Regression: default image zones keep the 0..1 validation.
+    async with _client() as c:
+        r = await c.put("/api/zones/cam_img", json={"zones": [{
+            "name": "Bad", "severity": "DANGER",
+            "polygon": [[0.0, 0.0], [3.0, 0.0], [3.0, 3.0]],
+        }]})
+        assert r.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_reject_polygon_out_of_bounds():
     async with _client() as c:
         r = await c.put("/api/zones/cam_bad", json={"zones": [{

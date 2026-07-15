@@ -17,6 +17,10 @@ class Zone(BaseModel):
     # the list here, so [10, 20, 30, 40] gives TL → TR → BR → BL).
     # `polygon` field is used as fallback cache written to disk.
     marker_ids: list[int] = []
+    # "image" — polygon normalized 0..1 in camera frame (default, legacy).
+    # "world" — polygon in metres in the shared calibration plane
+    # (multi-camera site zones, stored under camera key "_site").
+    coordinate_space: str = "image"
     active: bool = True
     created_at: float = Field(default_factory=time.time)
 
