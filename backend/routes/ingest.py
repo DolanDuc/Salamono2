@@ -25,6 +25,7 @@ from backend.models import (
     ZoneBreachOut,
 )
 from backend.ppe_rules import PPEEvent
+from backend.vehicle_motion import VehicleMotionTracker
 from backend.world_state import FusedPerson, WorldObservation, WorldZoneBreachEvent
 from backend.zone_rules import ZoneBreachEvent
 
@@ -476,7 +477,8 @@ def _annotate_ppe(frame: np.ndarray, detections: list[Detection],
 
 
 async def _handle_site(request: Request, frame: np.ndarray, now: float,
-                        t0: float, camera_id: str) -> FrameResultOut:
+                        t0: float, camera_id: str,
+                        zones_only: bool = False) -> FrameResultOut:
     detector = request.app.state.detector
     danger_detector = request.app.state.danger_detector
     temporal_filter = request.app.state.temporal_filter
@@ -515,8 +517,24 @@ async def _handle_site(request: Request, frame: np.ndarray, now: float,
             if not inj_map:
                 request.app.state.debug_inject_person = None
 
-    raw_dangers = danger_detector.evaluate(detections, now)
-    confirmed = temporal_filter.update(raw_dangers, now)
+    # Tryb „tylko strefy": pomijamy reguły pojazdów (i PPE), zostają strefy.
+    if zones_only:
+        raw_dangers = []
+        confirmed = []
+    else:
+        # Bramkowanie ruchem: alarm liczą tylko pojazdy, które się poruszają
+        # (lub ruszały < hold_sec temu). Zbliżenie do stojącego pojazdu = OK.
+        vehicles = [d for d in detections if d.category == "vehicle"]
+        motion = getattr(request.app.state, "vehicle_motion", None)
+        if motion is None:  # setupy bez pełnego lifespan (np. testy) — twórz leniwie
+            motion = VehicleMotionTracker()
+            request.app.state.vehicle_motion = motion
+        if motion.cfg.enabled:
+            dangerous_boxes = motion.update(camera_id, vehicles, frame, now)
+        else:
+            dangerous_boxes = None
+        raw_dangers = danger_detector.evaluate(detections, now, dangerous_boxes)
+        confirmed = temporal_filter.update(raw_dangers, now)
 
     zones = zone_store.for_camera(camera_id)
     fh, fw = frame.shape[:2]
@@ -711,7 +729,8 @@ async def receive_frame(
     if mode == "checkpoint" and request.app.state.ppe_detector is not None:
         result = await _handle_checkpoint(request, frame, now, t0, camera_id)
     else:
-        result = await _handle_site(request, frame, now, t0, camera_id)
+        result = await _handle_site(request, frame, now, t0, camera_id,
+                                    zones_only=(mode == "zones"))
 
     await request.app.state.ws_manager.broadcast_json(result.model_dump())
     return result

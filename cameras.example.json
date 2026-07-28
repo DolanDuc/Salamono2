@@ -1,0 +1,17 @@
+{
+  "_comment": "Skopiuj do data/cameras.json i wpisz realne adresy/hasła. data/ jest w .gitignore, więc hasła nie trafią do repo. Format zastępuje config.txt z camrecord.exe (tam było: '<id> <rtsp_url>' na linię).",
+  "cameras": [
+    {
+      "id": "111",
+      "name": "Hikvision — plac",
+      "brand": "Hikvision",
+      "rtsp_url": "rtsp://admin:HASLO@192.168.112.111"
+    },
+    {
+      "id": "112",
+      "name": "Axis — brama",
+      "brand": "Axis",
+      "rtsp_url": "rtsp://root:HASLO@192.168.112.112/mpeg4/media.amp"
+    }
+  ]
+}

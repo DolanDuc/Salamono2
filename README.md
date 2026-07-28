@@ -51,6 +51,34 @@ python tools/simulate_phone.py --video wideo.mp4 --fps 2 --loop
 **Lub uzyj telefonu:** Otworz `http://<adres-serwera>:8000/phone/capture.html`
 na telefonie w tej samej sieci.
 
+## Nagrywanie kamer RTSP (recorder)
+
+Podłączanie kamer przemysłowych po Ethernecie (RTSP) i nagrywanie **surowego
+strumienia** na dysk — port narzędzia `camrecord.exe` (Windows) na
+wieloplatformowy backend. W panelu kierownika (prawa kolumna) jest karta
+**„Nagrywanie (RTSP)"** z przyciskami **Testuj** (sprawdza czy kamera jest
+podłączona + pokazuje rozdzielczość/fps) i **● Nagrywaj / ■ Stop**.
+
+- Zapis: `-c copy` (bez re-enkodowania, zero utraty jakości), do
+  `data/recordings/cam<id>_YYYY-MM-DD_HHMMSS.mp4`. **Nazwa ze znacznikiem czasu
+  → nic się nie nadpisuje** (poprawka głównej wady `camrecord`).
+- ffmpeg: systemowy (`brew install ffmpeg`) albo statyczny z `imageio-ffmpeg`
+  (jest w `requirements.txt`) — działa na Macu bez Homebrew.
+
+**Konfiguracja kamer** — skopiuj `cameras.example.json` → `data/cameras.json`
+(poza repo, patrz `.gitignore`) i wpisz adresy RTSP z hasłami:
+
+```json
+{ "cameras": [
+  { "id": "111", "name": "Hikvision — plac", "rtsp_url": "rtsp://admin:HASLO@192.168.112.111" }
+]}
+```
+
+Podłączenie fizyczne: kamera → injector PoE → laptop; laptop na statycznym IP
+w podsieci kamery (np. `192.168.112.110/24`). Endpointy:
+`GET /api/recorder/cameras`, `POST /api/recorder/test|start|stop`,
+`GET /api/recorder/status`, `GET /api/recorder/recordings`.
+
 ## Multi-camera: wspolne strefy + fuzja pozycji
 
 Kilka kamer z roznych katow patrzy na te same strefy — pozycje osob sa

@@ -21,6 +21,7 @@
     <div class="px-header-right">
         <div class="px-segmented" id="modeSegmented">
             <button type="button" data-mode="site" class="active">Plac</button>
+            <button type="button" data-mode="zones">Tylko strefy</button>
             <button type="button" data-mode="checkpoint">Bramka</button>
         </div>
         <div class="px-status" id="connectionStatus">
@@ -129,6 +130,22 @@
 
     <aside class="px-col-right">
 
+        <div class="px-card" id="recorderCard">
+            <div class="px-card-hd">
+                <span class="px-card-title">Nagrywanie (RTSP)</span>
+                <span class="px-mono" style="color:var(--ink-3);font-size:12px" id="recorderMeta">—</span>
+            </div>
+            <div class="px-overlap-banner hidden" id="overlapBanner"></div>
+            <div class="px-recorder-list" id="recorderList">
+                <div class="px-alarms-empty" id="recorderEmpty">Ładowanie kamer…</div>
+            </div>
+            <span class="px-card-hint">
+                <b>Testuj</b> — sprawdź połączenie. <b>Live</b> — detekcja + kalibracja ArUco na żywo.
+                <b>Nagrywaj</b> — surowy zapis do <span class="px-mono">~/Movies/Perimetr</span>
+                (znacznik czasu, nic się nie nadpisuje). Live i nagrywanie działają równolegle.
+            </span>
+        </div>
+
         <div class="px-card" id="zonesCard">
             <div class="px-card-hd">
                 <span class="px-card-title">Strefy niebezpieczne</span>
@@ -217,6 +234,7 @@
 <script src="app.js"></script>
 <script src="zones.js"></script>
 <script src="map.js"></script>
+<script src="recorder.js"></script>
 <script>
   document.addEventListener("DOMContentLoaded", () => {
     if (window.lucide) window.lucide.createIcons();

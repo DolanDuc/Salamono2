@@ -15,13 +15,18 @@ from backend.detector import Detector, PPE_CATEGORIES
 from backend.frame_store import FrameStore
 from backend.marker_detector import MarkerDetector
 from backend.models import StatsOut
+from backend.detect_bridge import DetectionBridge
 from backend.ppe_rules import PPEChecker
+from backend.vehicle_motion import VehicleMotionTracker
+from backend.recorder import RecorderManager
 from backend.routes import (
     alerts,
     calibration,
     debug,
+    detect,
     ingest,
     pair,
+    recorder,
     world,
     ws,
     zones,
@@ -39,6 +44,12 @@ from config import CONFIG
 ALERTS_LOG_PATH = os.path.join(CONFIG.flagged_frames_dir, "..", "alerts.jsonl")
 ZONES_PATH = os.path.join(CONFIG.flagged_frames_dir, "..", "zones.json")
 CALIBRATION_PATH = os.path.join(CONFIG.flagged_frames_dir, "..", "calibration.json")
+DATA_DIR = os.path.join(CONFIG.flagged_frames_dir, "..")
+RECORDINGS_DIR = os.getenv(
+    "RECORDINGS_DIR",
+    os.path.expanduser("~/Movies/Perimetr"),  # lokalnie na dysku, poza repo
+)
+CAMERAS_PATH = os.getenv("CAMERAS_PATH", os.path.join(DATA_DIR, "cameras.json"))
 
 PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "")
 DEMO_TOKEN = os.getenv("DEMO_TOKEN", "")
@@ -83,6 +94,7 @@ async def lifespan(app: FastAPI):
         cooldown_sec=CONFIG.danger.cooldown_seconds,
     )
     app.state.marker_detector = MarkerDetector()
+    app.state.vehicle_motion = VehicleMotionTracker()
     app.state.calibration_store = CalibrationStore(CALIBRATION_PATH)
     # Multi-camera ground-plane fusion (see backend/world_state.py).
     app.state.world_state = WorldState()
@@ -99,7 +111,21 @@ async def lifespan(app: FastAPI):
     app.state.debug_inject_person = None
     app.state.frame_counter = 0
     app.state.start_time = time.time()
+    # Nagrywanie surowego strumienia RTSP (port camrecord.exe na Maca).
+    try:
+        app.state.recorder = RecorderManager(RECORDINGS_DIR, CAMERAS_PATH)
+        print(f"[startup] Recorder gotowy → {RECORDINGS_DIR}")
+    except Exception as e:
+        app.state.recorder = None
+        print(f"[startup] Recorder wyłączony (brak ffmpeg?): {e}")
+    # Mostek RTSP → detekcja + kalibracja ArUco (kamery RTSP na żywo do pipeline'u).
+    app.state.detect_bridge = DetectionBridge(app, CAMERAS_PATH)
+    print("[startup] Mostek detekcji RTSP gotowy")
     yield
+    if getattr(app.state, "recorder", None):
+        app.state.recorder.shutdown()
+    if getattr(app.state, "detect_bridge", None):
+        app.state.detect_bridge.shutdown()
 
 
 app = FastAPI(title="Perimetr", version="1.0.0", lifespan=lifespan)
@@ -168,6 +194,8 @@ app.include_router(zones.router, prefix="/api")
 app.include_router(calibration.router, prefix="/api")
 app.include_router(debug.router, prefix="/api")
 app.include_router(pair.router, prefix="/api")
+app.include_router(recorder.router, prefix="/api")
+app.include_router(detect.router, prefix="/api")
 app.include_router(world.router, prefix="/api")
 app.include_router(ws.router)
 
@@ -192,7 +220,7 @@ async def health():
 @app.get("/api/modes")
 async def modes():
     return {
-        "modes": ["site"] + (["checkpoint"] if app.state.ppe_detector else []),
+        "modes": ["site", "zones"] + (["checkpoint"] if app.state.ppe_detector else []),
         "checkpoint_available": app.state.ppe_detector is not None,
     }
 

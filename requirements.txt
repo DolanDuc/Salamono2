@@ -8,6 +8,9 @@ python-multipart>=0.0.12
 opencv-contrib-python-headless>=4.10.0
 numpy>=1.26.0
 
+# Nagrywanie RTSP (recorder) — statyczny ffmpeg jako fallback, gdy brak systemowego
+imageio-ffmpeg>=0.5.1
+
 # Phone-pairing QR (pure-python SVG, no Pillow)
 qrcode>=7.4
 

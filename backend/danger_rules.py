@@ -43,9 +43,14 @@ class DangerDetector:
         self,
         detections: list[Detection],
         frame_timestamp: float = 0.0,
+        dangerous_vehicle_boxes: set | None = None,
     ) -> list[DangerEvent]:
+        """dangerous_vehicle_boxes: gdy podane, alarm liczą TYLKO pojazdy z tego
+        zbioru (ruchome/w oknie podtrzymania). None = stara logika (wszystkie)."""
         persons = [d for d in detections if d.category == "person"]
         vehicles = [d for d in detections if d.category == "vehicle"]
+        if dangerous_vehicle_boxes is not None:
+            vehicles = [v for v in vehicles if tuple(v.box) in dangerous_vehicle_boxes]
         events = []
         for p in persons:
             for v in vehicles:

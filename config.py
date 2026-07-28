@@ -43,12 +43,31 @@ class WorldConfig:
 
 
 @dataclass
+class VehicleMotionConfig:
+    """Bramkowanie alarmu ruchem pojazdu.
+
+    Alarm „osoba przy pojeździe" leci tylko dla pojazdu, który się PORUSZA
+    (jedzie, obraca się, albo rusza osprzętem — np. koparka łyżką). Stan
+    „niebezpieczny" utrzymuje się `hold_sec` po ostatnim ruchu, więc pojazd,
+    który stanął na kilkanaście sekund, dalej jest niebezpieczny.
+    """
+    enabled: bool = True
+    match_iou: float = 0.3          # dopasowanie pojazdu do toru między klatkami
+    displacement_frac: float = 0.04  # przesunięcie środka bboxa / przekątna → jazda
+    size_change_frac: float = 0.12   # zmiana rozmiaru bboxa → dojazd/obrót
+    pixel_diff_thresh: int = 25      # próg różnicy piksela (0-255) w ROI pojazdu
+    internal_motion_frac: float = 0.03  # % zmienionych pikseli ROI → ruch osprzętu
+    hold_sec: float = 15.0           # jak długo „niebezpieczny" po ostatnim ruchu
+
+
+@dataclass
 class AppConfig:
     yolo: YOLOConfig = field(default_factory=YOLOConfig)
     danger: DangerConfig = field(default_factory=DangerConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)
     ppe: PPEConfig = field(default_factory=PPEConfig)
     world: WorldConfig = field(default_factory=WorldConfig)
+    vehicle_motion: VehicleMotionConfig = field(default_factory=VehicleMotionConfig)
     flagged_frames_dir: str = "data/flagged_frames"
     host: str = "0.0.0.0"
     port: int = 8000
@@ -82,6 +101,14 @@ def _from_env() -> AppConfig:
         cfg.world.assoc_threshold_m = float(v)
     if v := os.getenv("WORLD_OBS_TTL_SEC"):
         cfg.world.obs_ttl_sec = float(v)
+    if v := os.getenv("VEHICLE_MOTION_ENABLED"):
+        cfg.vehicle_motion.enabled = v.lower() not in ("0", "false", "no")
+    if v := os.getenv("VEHICLE_HOLD_SEC"):
+        cfg.vehicle_motion.hold_sec = float(v)
+    if v := os.getenv("VEHICLE_DISPLACEMENT_FRAC"):
+        cfg.vehicle_motion.displacement_frac = float(v)
+    if v := os.getenv("VEHICLE_INTERNAL_MOTION_FRAC"):
+        cfg.vehicle_motion.internal_motion_frac = float(v)
     if v := os.getenv("SERVER_PORT"):
         cfg.port = int(v)
     return cfg

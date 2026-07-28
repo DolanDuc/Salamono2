@@ -126,7 +126,11 @@ async def test_post_frame_no_dangers_far_apart():
 
 
 @pytest.mark.asyncio
-async def test_post_frame_with_overlap():
+async def test_overlap_stationary_vehicle_no_alarm():
+    """Osoba nachodzi na STOJĄCY pojazd (ten sam box) → BRAK alarmu.
+
+    Bramkowanie ruchem: zbliżenie do nieruchomego pojazdu jest normalne.
+    """
     det = _mock_detector()
     det.detect.return_value = [
         Detection(class_id=0, class_name="person", category="person",
@@ -139,13 +143,45 @@ async def test_post_frame_with_overlap():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         jpeg = _make_test_jpeg()
-        resp = await client.post(
-            "/api/frame",
-            files={"image": ("frame.jpg", jpeg, "image/jpeg")},
-            data={"camera_id": "test", "timestamp": "1000.0"},
-        )
+        for i in range(4):  # kilka klatek, pojazd cały czas stoi
+            resp = await client.post(
+                "/api/frame",
+                files={"image": ("frame.jpg", jpeg, "image/jpeg")},
+                data={"camera_id": "test_stat", "timestamp": str(1000.0 + i)},
+            )
         data = resp.json()
-        assert len(data["active_dangers"]) > 0
+        assert len(data["active_dangers"]) == 0
+        assert len(data["confirmed_alerts"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_overlap_moving_vehicle_alarms():
+    """Osoba nachodzi na JADĄCY pojazd (box się przesuwa) → alarm."""
+    person = Detection(class_id=0, class_name="person", category="person",
+                       box=(150, 150, 250, 300), confidence=0.85)
+    det = _mock_detector()
+    # Pojazd przesuwa się w prawo między klatkami (jazda).
+    det.detect.side_effect = [
+        [person, Detection(class_id=7, class_name="truck", category="vehicle",
+                           box=(100 + i * 30, 100, 300 + i * 30, 300),
+                           confidence=0.92)]
+        for i in range(5)
+    ]
+    app.state.detector = det
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        jpeg = _make_test_jpeg()
+        seen_danger = False
+        for i in range(5):
+            resp = await client.post(
+                "/api/frame",
+                files={"image": ("frame.jpg", jpeg, "image/jpeg")},
+                data={"camera_id": "test_move", "timestamp": str(2000.0 + i)},
+            )
+            if len(resp.json()["active_dangers"]) > 0:
+                seen_danger = True
+        assert seen_danger, "jadący pojazd blisko osoby powinien dać alarm"
 
 
 @pytest.mark.asyncio

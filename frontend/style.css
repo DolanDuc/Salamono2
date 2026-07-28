@@ -538,6 +538,42 @@ input, select { font-family: inherit; }
 .px-zone-actions { display: flex; gap: 8px; }
 .px-zone-actions .px-btn { flex: 1; padding: 8px 10px; }
 
+/* --- Recorder (nagrywanie RTSP) --- */
+.px-recorder-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.px-recorder-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid var(--line, #e5e5e5);
+  border-radius: 8px;
+}
+.px-recorder-row.is-recording { border-color: var(--msbp-red); background: rgba(220, 38, 38, 0.04); }
+.px-recorder-row.is-recording .px-status-dot { background: var(--msbp-red); animation: px-alarm 1.2s infinite; }
+.px-recorder-info { min-width: 0; }
+.px-recorder-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.px-overlap-banner {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: rgba(0, 180, 120, 0.12);
+  border: 1px solid rgba(0, 180, 120, 0.5);
+  color: var(--ink-1, #0a0a0a);
+  font-size: 12px;
+  font-weight: 600;
+}
+.px-recorder-name { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+.px-recorder-sub {
+  font-size: 11px;
+  color: var(--ink-3, #888);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 190px;
+}
+
 .px-zone-list { display: flex; flex-direction: column; gap: 8px; }
 
 .px-zone-row {
