@@ -12,6 +12,13 @@
       "name": "Axis — brama",
       "brand": "Axis",
       "rtsp_url": "rtsp://root:HASLO@192.168.112.112/mpeg4/media.amp"
+    },
+    {
+      "_comment": "Wariant awaryjny: kamera bez statycznego IP zgłasza się na link-local 169.254.x.x. Adres LOSUJE SIĘ po każdym restarcie kamery — odczytaj aktualny przez `arp -an | grep en6` i podmień tutaj. Szczegóły: docs/testy-na-budowie-2026-07-30.md",
+      "id": "112lan",
+      "name": "Axis — link-local (adres nietrwały!)",
+      "brand": "Axis",
+      "rtsp_url": "rtsp://root:HASLO@169.254.0.0/mpeg4/media.amp"
     }
   ]
 }
