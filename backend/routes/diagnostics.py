@@ -9,6 +9,15 @@ from fastapi import APIRouter, HTTPException, Request
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
 
+def _posture_stage_counts(posture_manager) -> dict[str, int]:
+    """Sum the per-camera pose pipeline counters into one view."""
+    totals: dict[str, int] = {}
+    for analyzer in getattr(posture_manager, "_analyzers", {}).values():
+        for stage, count in getattr(analyzer, "stage_counts", {}).items():
+            totals[stage] = totals.get(stage, 0) + int(count)
+    return totals
+
+
 @router.get("/performance")
 async def performance_diagnostics(request: Request):
     profiler = getattr(request.app.state, "performance_profiler", None)
@@ -77,6 +86,7 @@ async def performance_diagnostics(request: Request):
             # Highest score each behaviour class reached so far, so a run that
             # raised no alert can be told apart from one the classifier never
             # scored — and so thresholds can be set against real numbers.
+            "stages": _posture_stage_counts(posture_manager),
             "predictions": int(getattr(classifier, "prediction_count", 0)),
             "peak_probabilities": {
                 label: round(value, 4)

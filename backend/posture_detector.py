@@ -857,6 +857,14 @@ class PostureAnalyzer:
         self.estimator = estimator
         self.behavior_classifier = behavior_classifier
         self.behavior_error: str | None = None
+        # Counted per stage so a silent pipeline can be located: frames in,
+        # people big enough for pose, poses MediaPipe actually returned.
+        self.stage_counts = {
+            "frames": 0,
+            "persons": 0,
+            "eligible": 0,
+            "poses": 0,
+        }
         self.learned_events = LearnedEventController(
             unstable_threshold=self.cfg.unstable_threshold,
             unstable_confirm_seconds=self.cfg.unstable_confirm_seconds,
@@ -893,6 +901,8 @@ class PostureAnalyzer:
             "optical_flow_ms": 0.0,
             "tcn_ms": 0.0,
         }
+        self.stage_counts["frames"] += 1
+        self.stage_counts["persons"] += len(persons)
         tracking_started = time.perf_counter()
         self._expire_tracks(timestamp)
         assignments = self._assign_tracks(persons, timestamp)
@@ -926,6 +936,7 @@ class PostureAnalyzer:
             idx: (person, track)
             for idx, person, track in eligible_items[:max_people]
         }
+        self.stage_counts["eligible"] += len(eligible)
         optical_flow_enabled = bool(getattr(self.cfg, "optical_flow_enabled", False))
         if not optical_flow_enabled:
             # Avoid accidentally reusing an old reference if this runtime
@@ -1030,6 +1041,7 @@ class PostureAnalyzer:
                 map_pose_from_crop(pose, crop_box, frame_w, frame_h)
                 for pose in crop_poses
             ]
+            self.stage_counts["poses"] += len(mapped_poses)
             # A crop normally contains one pose, but matching still prevents a
             # background bystander at its edge from being attached blindly.
             tracking_started = time.perf_counter()
