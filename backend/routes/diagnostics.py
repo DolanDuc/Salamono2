@@ -83,9 +83,10 @@ async def performance_diagnostics(request: Request):
             "worker_pending": int(
                 posture_worker.pending_count if posture_worker else 0
             ),
-            # Highest score each behaviour class reached so far, so a run that
-            # raised no alert can be told apart from one the classifier never
-            # scored — and so thresholds can be set against real numbers.
+            # Where the pose pipeline goes quiet, and the highest score each
+            # behaviour class reached — so a run that raised no alert can be
+            # told apart from one the classifier never scored, and thresholds
+            # can be set against real numbers.
             "stages": _posture_stage_counts(posture_manager),
             "predictions": int(getattr(classifier, "prediction_count", 0)),
             "peak_probabilities": {
