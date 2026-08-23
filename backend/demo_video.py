@@ -197,6 +197,10 @@ class DemoVideoJobSnapshot:
     processing_ms: float
     export_status: str
     output_filename: str | None
+    # Wall-clock anchor of the current run. Frames enter the pipeline stamped
+    # with ``run_started_wall + source_time_sec``, so alerts recorded during the
+    # run map back to a position in the clip: ``alert.timestamp - this value``.
+    run_started_wall: float
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -2088,6 +2092,7 @@ class DemoVideoService:
             processing_ms=float(job.processing_ms),
             export_status=job.export_status,
             output_filename=(job.output_path.name if job.output_path else None),
+            run_started_wall=float(job.run_started_wall),
         )
 
     def _get_locked(self, job_id: str, *, allow_deleting: bool = False) -> _Job:
