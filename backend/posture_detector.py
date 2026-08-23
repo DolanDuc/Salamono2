@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field, replace
 import importlib.util
+import logging
 import math
 import os
 import threading
@@ -42,6 +43,8 @@ if TYPE_CHECKING:
 # MediaPipe Pose Landmarker returns the 33-landmark BlazePose topology.
 POSE_LANDMARK_COUNT = 33
 POSTURE_DRAW_MIN_VISIBILITY = 0.30
+logger = logging.getLogger(__name__)
+
 PERSON_CROP_MARGIN = 0.24
 SECONDARY_SMOKING_ALERT_THRESHOLD = 0.85
 
@@ -2122,6 +2125,11 @@ class PostureWorker:
         self._active = False
         self._active_camera_id: str | None = None
         self._closed = False
+        # A swallowed failure here is invisible everywhere else: the frame
+        # simply comes back without a pose. Keep the last one so it can be
+        # reported rather than guessed at.
+        self.error_count = 0
+        self.last_error: str | None = None
         self._manager_closed = False
         self._disabled_cameras: set[str] = set()
         self._resetting_cameras: set[str] = set()
@@ -2387,6 +2395,14 @@ class PostureWorker:
                         )
                 except Exception as exc:  # keep the long-lived worker alive
                     error = f"{type(exc).__name__}: {exc}"
+                    self.error_count += 1
+                    self.last_error = error
+                    logger.warning(
+                        "Posture analysis failed for %s: %s",
+                        job.camera_id,
+                        error,
+                        exc_info=True,
+                    )
 
                 snapshot = PostureWorkerSnapshot(
                     camera_id=job.camera_id,

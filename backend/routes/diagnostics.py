@@ -83,6 +83,8 @@ async def performance_diagnostics(request: Request):
             "worker_pending": int(
                 posture_worker.pending_count if posture_worker else 0
             ),
+            "worker_errors": int(getattr(posture_worker, "error_count", 0)),
+            "worker_last_error": getattr(posture_worker, "last_error", None),
             # Where the pose pipeline goes quiet, and the highest score each
             # behaviour class reached — so a run that raised no alert can be
             # told apart from one the classifier never scored, and thresholds
