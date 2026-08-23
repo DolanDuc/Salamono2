@@ -863,6 +863,9 @@ class PostureAnalyzer:
             "frames": 0,
             "persons": 0,
             "eligible": 0,
+            "inference_runs": 0,
+            "cache_returns": 0,
+            "crops": 0,
             "poses": 0,
         }
         self.learned_events = LearnedEventController(
@@ -946,6 +949,7 @@ class PostureAnalyzer:
 
         sample_interval = 1.0 / max(self.cfg.sample_fps, 0.1)
         if timestamp - self._last_inference_at < sample_interval:
+            self.stage_counts["cache_returns"] += 1
             flow_track_ids = {
                 track.track_id
                 for _person, track in eligible.values()
@@ -989,6 +993,7 @@ class PostureAnalyzer:
                 timings_ms=timings_ms,
             )
         self._last_inference_at = timestamp
+        self.stage_counts["inference_runs"] += 1
 
         if not eligible:
             return PostureProcessResult(
@@ -1016,6 +1021,7 @@ class PostureAnalyzer:
             if cropped is None:
                 continue
             crop, crop_box = cropped
+            self.stage_counts["crops"] += 1
             track.roi_box = crop_box
             mediapipe_started = time.perf_counter()
             estimate_for_track = getattr(
