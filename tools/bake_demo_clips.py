@@ -334,10 +334,13 @@ def bake_clip(api: Api, clip: ClipProfile, clips_dir: Path, out_dir: Path, poll:
     }
 
 
-# Heuristic gait/posture anomalies fire almost continuously on ordinary site
-# movement — a worker bending over pipes reads as "unstable trajectory". They
-# are noise in a demo, so they stay in bake-report.json and out of the panel.
-MUTED_KINDS = ("posture_anomaly",)
+# Kinds that stay in bake-report.json but never reach the panel:
+#  - posture_anomaly: heuristic gait rules fire almost continuously on ordinary
+#    site movement — a worker bending over pipes reads as "unstable trajectory".
+#  - unidentified_worker: fires for everyone without an ArUco tag, which on
+#    these recordings is everyone, and QR identification is not what the demo
+#    is showing.
+MUTED_KINDS = ("posture_anomaly", "unidentified_worker")
 
 
 def dedupe_alerts(
