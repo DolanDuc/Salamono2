@@ -424,6 +424,37 @@ POSTURE_SIGNAL_DESCRIPTIONS = {
 }
 
 
+POSTURE_COORDINATION_SIGNALS = frozenset({
+    "repeated_body_sway",
+    "unstable_trajectory",
+    "irregular_step_pattern",
+    "upper_body_instability",
+    "sudden_balance_loss",
+})
+
+
+def posture_signal_category(signals: list[str] | set[str]) -> str:
+    """Classify posture signals once, for both alerts and the frame overlay.
+
+    Returns one of ``fall``, ``lying``, ``unstable``, ``smoking`` or
+    ``coordination``. Keeping this in one place stops the highlight drawn on
+    the video from drifting away from the alert written to the history.
+    """
+    signals = set(signals)
+    if signals & {"fall_detected", "fall_suspected", "possible_fall", "ml_fall_down"}:
+        return "fall"
+    if signals & {"person_on_ground", "ml_lying_down"}:
+        return "lying"
+    if "unstable_movement" in signals:
+        return "unstable"
+    if "smoking_detected" in signals or (
+        "hand_to_mouth_pattern" in signals
+        and not POSTURE_COORDINATION_SIGNALS & signals
+    ):
+        return "smoking"
+    return "coordination"
+
+
 def _posture_record(
     assessment: PostureAssessmentOut,
     camera_id: str,
@@ -434,31 +465,11 @@ def _posture_record(
         POSTURE_SIGNAL_DESCRIPTIONS.get(signal, signal)
         for signal in assessment.signals
     ]
-    is_fall = (
-        "fall_detected" in assessment.signals
-        or "fall_suspected" in assessment.signals
-        or "possible_fall" in assessment.signals
-        or "ml_fall_down" in assessment.signals
-    )
-    is_lying = (
-        "person_on_ground" in assessment.signals
-        or "ml_lying_down" in assessment.signals
-    )
-    is_unstable = "unstable_movement" in assessment.signals
-    coordination_signals = {
-        "repeated_body_sway",
-        "unstable_trajectory",
-        "irregular_step_pattern",
-        "upper_body_instability",
-        "sudden_balance_loss",
-    }
-    is_smoking = (
-        "smoking_detected" in assessment.signals
-        or (
-            "hand_to_mouth_pattern" in assessment.signals
-            and not coordination_signals.intersection(assessment.signals)
-        )
-    )
+    category = posture_signal_category(assessment.signals)
+    is_fall = category == "fall"
+    is_lying = category == "lying"
+    is_unstable = category == "unstable"
+    is_smoking = category == "smoking"
     if is_fall:
         kind = "fall_detected"
         rule_name = (
@@ -1153,8 +1164,11 @@ def _annotate_dynamic_safety_zones(
     if not zones:
         return frame
     out = frame
-    for zone in zones:
-        if zone.severity != "DANGER":
+    # Draw the warning ring as well as the danger one: on the recorded demo the
+    # approach is the part that explains what the system is doing, and without
+    # it a person turning orange has no visible cause.
+    for zone in sorted(zones, key=lambda z: z.severity == "DANGER"):
+        if zone.severity not in {"DANGER", "WARNING"}:
             continue
         if len(zone.polygon_px) < 3:
             continue
@@ -1162,7 +1176,7 @@ def _annotate_dynamic_safety_zones(
             [[int(round(x)), int(round(y))] for x, y in zone.polygon_px],
             dtype=np.int32,
         )
-        color = COLOR_DANGER
+        color = COLOR_DANGER if zone.severity == "DANGER" else COLOR_WARNING
         overlay = out.copy()
         cv2.fillPoly(overlay, [pts], color)
         alpha = 0.10
@@ -1233,14 +1247,107 @@ def _annotate_unidentified(
     return out
 
 
+# Anyone the system has something to say about gets a translucent fill and a
+# thicker border in the alert colour; everyone else keeps the plain green
+# outline. Orange warns, red means danger — the convention a site manager
+# already reads without a legend.
+PERSON_HIGHLIGHT_ALPHA = 0.30
+
+PersonHighlights = dict[tuple[int, int, int, int], tuple[tuple[int, int, int], str]]
+
+# reason -> (precedence, colour, on-frame label); lower precedence wins.
+# Labels avoid Polish diacritics because OpenCV's Hershey fonts cannot draw them.
+_PERSON_HIGHLIGHT_RULES: dict[str, tuple[int, tuple[int, int, int], str]] = {
+    "fall": (10, COLOR_DANGER, "UPADEK"),
+    "lying": (20, COLOR_DANGER, "OSOBA NA ZIEMI"),
+    "danger_zone": (30, COLOR_DANGER, "STREFA DANGER"),
+    "ppe": (40, COLOR_DANGER, "BRAK PPE"),
+    "smoking": (50, COLOR_DANGER, "PALENIE"),
+    "warning_zone": (60, COLOR_WARNING, "ZBLIZANIE"),
+}
+
+
+def _person_highlights(
+    *,
+    dangers: list[DangerEvent] = (),
+    zone_breaches: list = (),
+    posture_assessments: list[PostureAssessment] = (),
+    ppe_events: list[PPEEvent] = (),
+) -> PersonHighlights:
+    """Pick one colour per person: the most serious thing said about them."""
+    best: dict[tuple[int, int, int, int], tuple[int, tuple[int, int, int], str]] = {}
+
+    def offer(box, reason: str) -> None:
+        rule = _PERSON_HIGHLIGHT_RULES.get(reason)
+        if rule is None:
+            return
+        key = tuple(int(v) for v in box)
+        current = best.get(key)
+        if current is None or rule[0] < current[0]:
+            best[key] = rule
+
+    for event in dangers:
+        offer(
+            event.person.box,
+            "danger_zone" if event.severity == "DANGER" else "warning_zone",
+        )
+    for breach in zone_breaches:
+        offer(
+            breach.person.box,
+            "danger_zone" if breach.severity == "DANGER" else "warning_zone",
+        )
+    for assessment in posture_assessments:
+        category = posture_signal_category(assessment.signals)
+        if category in {"fall", "lying", "smoking"}:
+            offer(assessment.person.box, category)
+    for event in ppe_events:
+        if event.missing:
+            offer(event.person.box, "ppe")
+
+    return {box: (colour, label) for box, (_, colour, label) in best.items()}
+
+
+def _draw_person_highlights(
+    out: np.ndarray,
+    highlights: PersonHighlights,
+) -> np.ndarray:
+    if not highlights:
+        return out
+    # One frame copy for every fill, not one per person: at 2688x1520 the copy
+    # costs more than the drawing.
+    overlay = out.copy()
+    for (x1, y1, x2, y2), (colour, _label) in highlights.items():
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), colour, -1)
+    cv2.addWeighted(
+        overlay, PERSON_HIGHLIGHT_ALPHA, out, 1.0 - PERSON_HIGHLIGHT_ALPHA, 0, out
+    )
+    height = out.shape[0]
+    for (x1, y1, x2, y2), (colour, label) in highlights.items():
+        cv2.rectangle(out, (x1, y1), (x2, y2), colour, 3)
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        # Below the box: the detection label already sits above it.
+        baseline = min(height - 4, y2 + th + 10)
+        cv2.rectangle(
+            out, (x1, baseline - th - 8), (x1 + tw + 10, baseline), colour, -1
+        )
+        cv2.putText(out, label, (x1 + 5, baseline - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+    return out
+
+
 def _annotate_site(frame: np.ndarray, detections: list[Detection],
                    raw_dangers: list[DangerEvent],
-                   confirmed: list[DangerEvent]) -> np.ndarray:
+                   confirmed: list[DangerEvent],
+                   highlights: PersonHighlights | None = None) -> np.ndarray:
     out = frame.copy()
+    highlights = highlights or {}
 
     for d in detections:
         x1, y1, x2, y2 = d.box
         color = COLOR_PERSON if d.category == "person" else COLOR_VEHICLE
+        if d.category == "person" and tuple(int(v) for v in d.box) in highlights:
+            # The highlight pass draws this person's box in the alert colour.
+            continue
         cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
         label = f"{d.class_name} {d.confidence:.0%}"
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
@@ -1256,13 +1363,7 @@ def _annotate_site(frame: np.ndarray, detections: list[Detection],
         color = COLOR_DANGER if e.severity == "DANGER" else COLOR_WARNING
         cv2.line(out, pc, hc, color, 1, cv2.LINE_AA)
 
-    for e in confirmed:
-        overlay = out.copy()
-        cv2.rectangle(overlay,
-                      (e.person.box[0], e.person.box[1]),
-                      (e.person.box[2], e.person.box[3]),
-                      COLOR_DANGER, -1)
-        cv2.addWeighted(overlay, 0.3, out, 0.7, 0, out)
+    out = _draw_person_highlights(out, highlights)
 
     if confirmed:
         cv2.rectangle(out, (0, 0), (out.shape[1], 40), COLOR_DANGER, -1)
@@ -1274,12 +1375,16 @@ def _annotate_site(frame: np.ndarray, detections: list[Detection],
 
 
 def _annotate_ppe(frame: np.ndarray, detections: list[Detection],
-                  events: list[PPEEvent]) -> np.ndarray:
+                  events: list[PPEEvent],
+                  highlights: PersonHighlights | None = None) -> np.ndarray:
     out = frame.copy()
+    highlights = highlights or {}
 
     for d in detections:
         x1, y1, x2, y2 = d.box
         if d.category == "person":
+            if tuple(int(v) for v in d.box) in highlights:
+                continue
             color = COLOR_PERSON
         elif d.category == "hardhat":
             color = COLOR_HARDHAT
@@ -1289,18 +1394,13 @@ def _annotate_ppe(frame: np.ndarray, detections: list[Detection],
             continue
         cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
 
+    out = _draw_person_highlights(out, highlights)
+
     banner_color = None
     banner_text = None
     for e in events:
         if not e.confirmed:
             continue
-        color = COLOR_DANGER if e.missing else COLOR_OK
-        overlay = out.copy()
-        cv2.rectangle(overlay,
-                      (e.person.box[0], e.person.box[1]),
-                      (e.person.box[2], e.person.box[3]),
-                      color, -1)
-        cv2.addWeighted(overlay, 0.25, out, 0.75, 0, out)
         if e.missing:
             banner_color = COLOR_DANGER
             banner_text = "MISSING: " + " + ".join(m.upper() for m in e.missing)
@@ -1660,11 +1760,19 @@ def _handle_site(
             out = _annotate_zones(out, zones, raw_zone_breaches)
         if runtime.distances:
             out = _annotate_dynamic_safety_zones(out, dynamic_safety_zones)
+        # Raw events, not confirmed ones: the highlight should stay on the
+        # person for as long as the situation lasts, while the alert history
+        # still only gets the temporally confirmed events.
         out = _annotate_site(
             out,
             detections,
             raw_dangers if runtime.distances else [],
             confirmed if runtime.distances else [],
+            _person_highlights(
+                dangers=raw_dangers if runtime.distances else [],
+                zone_breaches=raw_zone_breaches if runtime.zones else [],
+                posture_assessments=posture_assessments if runtime.posture else [],
+            ),
         )
         if runtime.markers or marker_zones_active:
             calibration_ids = (
@@ -1906,6 +2014,7 @@ def _handle_checkpoint(
             frame,
             detections if runtime.ppe else [],
             confirmed if runtime.ppe else [],
+            _person_highlights(ppe_events=events if runtime.ppe else []),
         )
         if runtime.worker_id:
             out = _annotate_worker_ids(out, worker_identities, worker_profiles)
