@@ -268,6 +268,10 @@ class DemoVideoConfig:
     processing_enabled: bool = True
     playback_mode: str = "realtime"
     probe_timeout_seconds: float = 15.0
+    # Downscale the annotated export to this width (0 = keep the source size).
+    # Camera footage is 2688 px wide; a deck iframe never needs more than ~1280
+    # and the file has to stay small enough to stream without stalling.
+    export_max_width: int = 0
     control_timeout_seconds: float = 10.0
 
 
@@ -572,6 +576,8 @@ def _from_env() -> AppConfig:
         cfg.demo_video.job_ttl_seconds = max(1.0, float(v))
     if v := os.getenv("DEMO_VIDEO_MAX_PENDING_JOBS"):
         cfg.demo_video.max_pending_jobs = max(1, int(v))
+    if v := os.getenv("DEMO_VIDEO_EXPORT_MAX_WIDTH"):
+        cfg.demo_video.export_max_width = max(0, int(v))
     if v := os.getenv("DEMO_VIDEO_PROCESSING_ENABLED"):
         cfg.demo_video.processing_enabled = v.strip().lower() in {
             "1", "true", "yes", "on",

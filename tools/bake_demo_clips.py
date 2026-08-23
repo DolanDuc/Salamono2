@@ -438,6 +438,10 @@ def main() -> int:
         help=f"Show an otherwise muted alert kind ({', '.join(MUTED_KINDS)})",
     )
     parser.add_argument(
+        "--report", type=Path, default=None,
+        help="Read the bake report from here instead of out-dir/bake-report.json",
+    )
+    parser.add_argument(
         "--from-report", action="store_true",
         help="Rebuild clips.js from an existing bake-report.json without reprocessing video",
     )
@@ -451,7 +455,9 @@ def main() -> int:
     muted = tuple(k for k in MUTED_KINDS if k not in args.keep_kind)
 
     if args.from_report:
-        report = json.loads((args.out_dir / "bake-report.json").read_text())
+        report = json.loads((args.report or args.out_dir / "bake-report.json").read_text())
+        if args.only:
+            report = [c for c in report if c["key"] in args.only]
         manifest = write_clips_js(report, args.out_dir, args.dedupe_window, muted)
         shown = sum(len(dedupe_alerts(c["alerts"], args.dedupe_window, muted)) for c in report)
         total = sum(len(c["alerts"]) for c in report)

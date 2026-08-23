@@ -35,7 +35,23 @@ logger = logging.getLogger(__name__)
 class _H264ExportWriter:
     """Stream annotated BGR frames to a compact, browser-compatible H.264 MP4."""
 
-    def __init__(self, path: Path, width: int, height: int, fps: float):
+    def __init__(
+        self,
+        path: Path,
+        width: int,
+        height: int,
+        fps: float,
+        max_width: int = 0,
+    ):
+        # A 2688-pixel-wide export is pointless for a slide deck iframe and
+        # makes the file too heavy to stream comfortably. Scale on the way out;
+        # the overlay is drawn at full resolution first, so nothing is lost
+        # beyond the downscale itself.
+        self._scale_to: tuple[int, int] | None = None
+        if max_width and width > max_width:
+            scaled_height = max(2, int(round(height * max_width / width)))
+            self._scale_to = (int(max_width), scaled_height - scaled_height % 2)
+            width, height = self._scale_to
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             raise DemoVideoError(
@@ -70,6 +86,12 @@ class _H264ExportWriter:
         self._closed = False
 
     def write(self, frame: np.ndarray) -> None:
+        if self._scale_to is not None and (
+            frame.shape[1] != self._scale_to[0] or frame.shape[0] != self._scale_to[1]
+        ):
+            # INTER_AREA is the right filter for shrinking: it averages the
+            # pixels being merged instead of sampling one of them.
+            frame = cv2.resize(frame, self._scale_to, interpolation=cv2.INTER_AREA)
         if self._closed or self._process.stdin is None:
             raise DemoVideoError("H.264 export writer is closed")
         try:
@@ -1579,6 +1601,7 @@ class DemoVideoService:
                     width,
                     height,
                     output_fps,
+                    max_width=int(getattr(self.config, "export_max_width", 0)),
                 )
 
             processed_count = 0
