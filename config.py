@@ -252,6 +252,8 @@ class EvidenceConfig:
     sample_fps: float = 3.0
     jpeg_quality: int = 70
     max_buffer_frames: int = 90
+    # Downscale evidence frames to this width (0 = source size).
+    max_width: int = 0
     ffmpeg_binary: str | None = None
 
 
@@ -556,6 +558,8 @@ def _from_env() -> AppConfig:
         cfg.evidence.post_seconds = float(v)
     if v := os.getenv("EVIDENCE_SAMPLE_FPS"):
         cfg.evidence.sample_fps = float(v)
+    if v := os.getenv("EVIDENCE_MAX_WIDTH"):
+        cfg.evidence.max_width = max(0, int(v))
     if v := os.getenv("EVIDENCE_FFMPEG_BINARY"):
         cfg.evidence.ffmpeg_binary = v.strip() or None
     if v := os.getenv("DEMO_VIDEO_UPLOAD_DIR"):

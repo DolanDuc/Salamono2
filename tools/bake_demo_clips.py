@@ -302,12 +302,16 @@ def bake_clip(api: Api, clip: ClipProfile, clips_dir: Path, out_dir: Path, poll:
                 "kind": record["kind"],
                 "rule": record["rule_name"],
                 "description": record["description"],
+                "id": record["id"],
+                "clip_url": record.get("clip_url"),
             }
             for record in alerts
         ),
         key=lambda event: event["t"],
     )
     print(f"    {len(events)} alerts: " + (", ".join(f"{e['t']}s {e['kind']}" for e in events[:6]) or "none"))
+
+    fetch_evidence(api, clip, events, out_dir)
 
     video_name = f"{clip.key}.mp4"
     if snapshot.get("export_status") == "ready":
@@ -369,6 +373,37 @@ def dedupe_alerts(
     return kept
 
 
+def fetch_evidence(api: Api, clip: ClipProfile, events: list[dict[str, Any]], out_dir: Path) -> None:
+    """Download the self-contained clip the backend cut around each alert.
+
+    Reviewing an incident should not mean scrubbing the full recording, so the
+    history plays the evidence clip itself. The recorder writes these on a
+    background thread, so a clip may not exist the instant the run ends.
+    """
+    evidence_dir = out_dir / "clips" / "evidence"
+    for event in events:
+        url = event.pop("clip_url", None)
+        event.pop("id", None)
+        if not url:
+            continue
+        name = f"{clip.key}_{event['t']:07.2f}.mp4".replace(".", "_", 1)
+        for attempt in range(4):
+            try:
+                data = api.get_bytes(url)
+                break
+            except Exception:
+                if attempt == 3:
+                    data = None
+                    break
+                time.sleep(2.0)
+        if not data:
+            print(f"    (brak klipu zdarzenia dla {event['t']}s)")
+            continue
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        (evidence_dir / name).write_bytes(data)
+        event["clip"] = f"clips/evidence/{name}"
+
+
 def write_clips_js(
     results: list[dict[str, Any]],
     out_dir: Path,
@@ -387,12 +422,13 @@ def write_clips_js(
                 camera, recorded = _recording_origin(source.filename)
                 result = {**result, "camera": camera, "recorded": recorded}
         alerts = ",\n".join(
-            "      { t: %s, severity: %s, kind: %s, rule: %s, description: %s }"
+            "      { t: %s, severity: %s, kind: %s, rule: %s, clip: %s, description: %s }"
             % (
                 event["t"],
                 json.dumps(event["severity"]),
                 json.dumps(event["kind"]),
                 json.dumps(event["rule"]),
+                json.dumps(event.get("clip")),
                 json.dumps(event["description"], ensure_ascii=False),
             )
             for event in dedupe_alerts(result["alerts"], dedupe_window, muted)

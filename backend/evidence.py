@@ -87,6 +87,16 @@ class EvidenceRecorder:
             self._writer_thread.start()
 
     def _encode(self, frame: np.ndarray) -> bytes | None:
+        # Camera footage is 2688 px wide, which makes a six-second evidence clip
+        # heavier than the source recording it was cut from. Nobody reviews an
+        # incident at full sensor resolution; scale on the way into the buffer so
+        # both memory and the written file stay reasonable.
+        max_width = int(getattr(self.cfg, "max_width", 0))
+        if max_width and frame.shape[1] > max_width:
+            height = max(2, int(round(frame.shape[0] * max_width / frame.shape[1])))
+            frame = cv2.resize(
+                frame, (max_width, height - height % 2), interpolation=cv2.INTER_AREA
+            )
         ok, buf = cv2.imencode(
             ".jpg", frame,
             [cv2.IMWRITE_JPEG_QUALITY, int(self.cfg.jpeg_quality)],
