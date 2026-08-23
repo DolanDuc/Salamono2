@@ -11,12 +11,18 @@ class AlertStore:
     """Append-only JSONL persistence for alarm records. In-memory cache of the
     most recent `max_memory` records for fast queries + broadcast."""
 
-    def __init__(self, path: str, max_memory: int = 2000):
+    def __init__(self, path: str, max_memory: int = 2000, retention_seconds: float = 0.0):
         self.path = path
         self.max_memory = max_memory
+        # Older records are dropped entirely once this age is exceeded. A demo
+        # instance accumulates every alert from every run; without an expiry the
+        # panel eventually shows a wall of events from sessions nobody
+        # remembers. 0 keeps everything, which is what a real site wants.
+        self.retention_seconds = max(0.0, float(retention_seconds))
         self._lock = threading.Lock()
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self._records: list[AlarmRecord] = self._load_tail()
+        self._prune_locked()
 
     def _load_tail(self) -> list[AlarmRecord]:
         if not os.path.exists(self.path):
@@ -37,8 +43,27 @@ class AlertStore:
                 continue
         return out
 
+    def _prune_locked(self) -> None:
+        """Drop expired records from memory and from the log they came from."""
+        if not self.retention_seconds:
+            return
+        cutoff = time.time() - self.retention_seconds
+        kept = [r for r in self._records if r.timestamp >= cutoff]
+        if len(kept) == len(self._records):
+            return
+        self._records = kept
+        try:
+            tmp = self.path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                for record in kept:
+                    f.write(record.model_dump_json() + "\n")
+            os.replace(tmp, self.path)
+        except OSError:
+            pass
+
     def append(self, record: AlarmRecord) -> None:
         with self._lock:
+            self._prune_locked()
             try:
                 with open(self.path, "a", encoding="utf-8") as f:
                     f.write(record.model_dump_json() + "\n")
@@ -119,6 +144,7 @@ class AlertStore:
         offset: int = 0,
     ) -> list[AlarmRecord]:
         with self._lock:
+            self._prune_locked()
             records = list(self._records)
         if mode:
             records = [r for r in records if r.mode == mode]
@@ -152,6 +178,7 @@ class AlertStore:
     ) -> dict:
         """Aggregate counts for the filtered audit-trail dashboard."""
         with self._lock:
+            self._prune_locked()
             records = list(self._records)
         if mode:
             records = [r for r in records if r.mode == mode]

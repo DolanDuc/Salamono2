@@ -128,7 +128,10 @@ async def lifespan(app: FastAPI):
         local_files_only=CONFIG.depth3d.local_files_only,
     )
     app.state.evidence_recorder = EvidenceRecorder()
-    app.state.alert_store = AlertStore(ALERTS_LOG_PATH)
+    app.state.alert_store = AlertStore(
+        ALERTS_LOG_PATH,
+        retention_seconds=CONFIG.alert_retention_seconds,
+    )
     app.state.zone_store = ZoneStore(ZONES_PATH)
     app.state.zone_detector = ZoneBreachDetector()
     app.state.zone_temporal_filter = ZoneTemporalFilter(

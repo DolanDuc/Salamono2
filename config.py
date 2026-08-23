@@ -311,6 +311,10 @@ class AppConfig:
     demo_video: DemoVideoConfig = field(default_factory=DemoVideoConfig)
     depth3d: Depth3DConfig = field(default_factory=Depth3DConfig)
     flagged_frames_dir: str = "data/flagged_frames"
+    # Drop alerts older than this (0 = keep forever). Demo instances want a
+    # short window so the panel reflects the current session, not every run
+    # anyone has ever triggered.
+    alert_retention_seconds: float = 0.0
     host: str = "0.0.0.0"
     port: int = 8000
 
@@ -618,6 +622,8 @@ def _from_env() -> AppConfig:
         cfg.depth3d.calibration_path = v
     if v := os.getenv("DEPTH3D_CALIBRATION_PROFILES_DIR"):
         cfg.depth3d.calibration_profiles_dir = v
+    if v := os.getenv("ALERT_RETENTION_HOURS"):
+        cfg.alert_retention_seconds = max(0.0, float(v)) * 3600.0
     if v := os.getenv("SERVER_PORT"):
         cfg.port = int(v)
     return cfg
