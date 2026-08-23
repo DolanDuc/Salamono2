@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import ssl
 import sys
 import time
@@ -56,6 +57,23 @@ class ClipProfile:
 
 
 _ALL_MODULES = ("boxes", "posture", "zones", "markers", "distances", "worker_id", "ppe")
+
+_RECORDING_STAMP = re.compile(r"^(?P<camera>[a-z0-9]+)_(?P<date>\d{4}-\d{2}-\d{2})_(?P<time>\d{6})")
+
+
+def _recording_origin(filename: str) -> tuple[str, str]:
+    """Pull camera and recording time out of the recorder's file name.
+
+    The panel shows both next to every clip and every history entry, so they
+    have to come from the recording itself rather than be typed in twice.
+    """
+    match = _RECORDING_STAMP.match(filename)
+    if not match:
+        return "cam", ""
+    date = match.group("date")
+    clock = match.group("time")
+    day, month, year = date[8:], date[5:7], date[:4]
+    return match.group("camera"), f"{day}.{month}.{year} {clock[:2]}:{clock[2:4]}"
 
 
 def _profile(**enabled: bool) -> dict[str, bool]:
@@ -302,9 +320,12 @@ def bake_clip(api: Api, clip: ClipProfile, clips_dir: Path, out_dir: Path, poll:
 
     api.post(f"/api/demo-videos/{job_id}", method="DELETE")
 
+    camera, recorded = _recording_origin(clip.filename)
     return {
         "key": clip.key,
         "title": clip.title,
+        "camera": camera,
+        "recorded": recorded,
         "src": f"clips/{video_name}" if video_name else f"clips/{clip.filename}",
         "duration_sec": snapshot.get("duration_sec"),
         "modules": [name for name, on in clip.modules.items() if on],
@@ -313,7 +334,17 @@ def bake_clip(api: Api, clip: ClipProfile, clips_dir: Path, out_dir: Path, poll:
     }
 
 
-def dedupe_alerts(alerts: list[dict[str, Any]], window: float) -> list[dict[str, Any]]:
+# Heuristic gait/posture anomalies fire almost continuously on ordinary site
+# movement — a worker bending over pipes reads as "unstable trajectory". They
+# are noise in a demo, so they stay in bake-report.json and out of the panel.
+MUTED_KINDS = ("posture_anomaly",)
+
+
+def dedupe_alerts(
+    alerts: list[dict[str, Any]],
+    window: float,
+    muted: tuple[str, ...] = MUTED_KINDS,
+) -> list[dict[str, Any]]:
     """Collapse repeats of the same alert kind within `window` seconds.
 
     A person standing near a working excavator re-triggers the proximity rule
@@ -322,6 +353,7 @@ def dedupe_alerts(alerts: list[dict[str, Any]], window: float) -> list[dict[str,
     where the point is that the system caught the hazard. The full set stays in
     bake-report.json; this only thins what the demo lists.
     """
+    alerts = [a for a in alerts if a["kind"] not in muted]
     if window <= 0:
         return alerts
     kept: list[dict[str, Any]] = []
@@ -335,21 +367,41 @@ def dedupe_alerts(alerts: list[dict[str, Any]], window: float) -> list[dict[str,
 
 
 def write_clips_js(
-    results: list[dict[str, Any]], out_dir: Path, dedupe_window: float
+    results: list[dict[str, Any]],
+    out_dir: Path,
+    dedupe_window: float,
+    muted: tuple[str, ...] = MUTED_KINDS,
 ) -> Path:
     """Emit the demo's clip manifest, keeping the shape demo.js already reads."""
+    by_key = {clip.key: clip for clip in CLIPS}
     entries = []
     for result in results:
+        if not result.get("recorded"):
+            # Reports written before the origin fields existed, or rebuilt with
+            # --from-report: recover them from the clip definition.
+            source = by_key.get(result["key"])
+            if source is not None:
+                camera, recorded = _recording_origin(source.filename)
+                result = {**result, "camera": camera, "recorded": recorded}
         alerts = ",\n".join(
-            "      { t: %s, severity: %s, description: %s }"
-            % (event["t"], json.dumps(event["severity"]), json.dumps(event["description"], ensure_ascii=False))
-            for event in dedupe_alerts(result["alerts"], dedupe_window)
+            "      { t: %s, severity: %s, kind: %s, rule: %s, description: %s }"
+            % (
+                event["t"],
+                json.dumps(event["severity"]),
+                json.dumps(event["kind"]),
+                json.dumps(event["rule"]),
+                json.dumps(event["description"], ensure_ascii=False),
+            )
+            for event in dedupe_alerts(result["alerts"], dedupe_window, muted)
         )
         entries.append(
             "  {\n"
             f"    id: {json.dumps(result['key'])},\n"
             f"    title: {json.dumps(result['title'], ensure_ascii=False)},\n"
             f"    src: {json.dumps(result['src'])},\n"
+            f"    camera: {json.dumps(result.get('camera', 'cam'))},\n"
+            f"    recorded: {json.dumps(result.get('recorded', ''))},\n"
+            f"    duration: {result.get('duration_sec') or 0},\n"
             f"    alerts: [\n{alerts}\n    ],\n"
             "  }"
         )
@@ -379,6 +431,10 @@ def main() -> int:
         help="Collapse repeats of one alert kind within this many seconds (0 disables)",
     )
     parser.add_argument(
+        "--keep-kind", action="append", default=[],
+        help=f"Show an otherwise muted alert kind ({', '.join(MUTED_KINDS)})",
+    )
+    parser.add_argument(
         "--from-report", action="store_true",
         help="Rebuild clips.js from an existing bake-report.json without reprocessing video",
     )
@@ -389,10 +445,12 @@ def main() -> int:
         print(f"No clip matches {args.only}; known keys: {', '.join(c.key for c in CLIPS)}", file=sys.stderr)
         return 2
 
+    muted = tuple(k for k in MUTED_KINDS if k not in args.keep_kind)
+
     if args.from_report:
         report = json.loads((args.out_dir / "bake-report.json").read_text())
-        manifest = write_clips_js(report, args.out_dir, args.dedupe_window)
-        shown = sum(len(dedupe_alerts(c["alerts"], args.dedupe_window)) for c in report)
+        manifest = write_clips_js(report, args.out_dir, args.dedupe_window, muted)
+        shown = sum(len(dedupe_alerts(c["alerts"], args.dedupe_window, muted)) for c in report)
         total = sum(len(c["alerts"]) for c in report)
         print(f"{len(report)} clips, {shown} of {total} alerts listed → {manifest}")
         return 0
@@ -419,9 +477,9 @@ def main() -> int:
     (args.out_dir / "bake-report.json").write_text(
         json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    manifest = write_clips_js(results, args.out_dir, args.dedupe_window)
+    manifest = write_clips_js(results, args.out_dir, args.dedupe_window, muted)
     total = sum(len(result["alerts"]) for result in results)
-    shown = sum(len(dedupe_alerts(r["alerts"], args.dedupe_window)) for r in results)
+    shown = sum(len(dedupe_alerts(r["alerts"], args.dedupe_window, muted)) for r in results)
     print(f"\n{len(results)} clips, {shown} of {total} alerts listed → {manifest}")
     return 0
 
