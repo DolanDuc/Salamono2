@@ -5,7 +5,8 @@ WORKDIR /app
 # ffmpeg is not optional: annotated demo exports and evidence clips both shell
 # out to it, and without it those jobs fail at the first frame.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libgl1 libglib2.0-0 ffmpeg && \
+    apt-get install -y --no-install-recommends \
+      libgl1 libglib2.0-0 libegl1 libgles2 ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
