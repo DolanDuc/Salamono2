@@ -266,10 +266,10 @@ def bake_clip(api: Api, clip: ClipProfile, clips_dir: Path, out_dir: Path, poll:
             f" (wall {elapsed / 60:.1f} min, {snapshot.get('processing_fps', 0):.2f} fps)",
             flush=True,
         )
+        if status == "failed" or export_status == "failed":
+            raise RuntimeError(f"Job failed: {snapshot.get('error') or 'unknown reason'}")
         if export_status == "ready" or status in TERMINAL_STATUSES:
             break
-        if status == "failed":
-            raise RuntimeError(f"Job failed: {snapshot.get('error')}")
 
     alerts = [
         record
