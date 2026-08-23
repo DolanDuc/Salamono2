@@ -74,6 +74,26 @@ async def performance_diagnostics(request: Request):
             "worker_pending": int(
                 posture_worker.pending_count if posture_worker else 0
             ),
+            # Highest score each behaviour class reached so far, so a run that
+            # raised no alert can be told apart from one the classifier never
+            # scored — and so thresholds can be set against real numbers.
+            "predictions": int(getattr(classifier, "prediction_count", 0)),
+            "peak_probabilities": {
+                label: round(value, 4)
+                for label, value in sorted(
+                    getattr(classifier, "peak_probabilities", {}).items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+            },
+            "secondary_peak_probabilities": {
+                label: round(value, 4)
+                for label, value in sorted(
+                    getattr(classifier, "secondary_peak_probabilities", {}).items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+            },
         }
     worker_id_worker = getattr(request.app.state, "worker_id_worker", None)
     if worker_id_worker is not None:

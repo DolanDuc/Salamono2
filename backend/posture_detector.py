@@ -1534,7 +1534,12 @@ class PostureAnalyzer:
         )
         if (
             secondary_fresh
-            and secondary_smoking_confidence >= SECONDARY_SMOKING_ALERT_THRESHOLD
+            and secondary_smoking_confidence
+            >= getattr(
+                self.cfg,
+                "secondary_smoking_alert_threshold",
+                SECONDARY_SMOKING_ALERT_THRESHOLD,
+            )
         ):
             if "smoking_detected" not in signals:
                 signals.append("smoking_detected")

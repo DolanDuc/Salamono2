@@ -40,6 +40,13 @@ class BehaviorPrediction:
     secondary_inference_ms: float
 
 
+def _record_peaks(peaks: dict[str, float], probabilities: dict[str, float]) -> None:
+    for label, value in probabilities.items():
+        score = float(value)
+        if score > peaks.get(label, 0.0):
+            peaks[label] = score
+
+
 class BehaviorClassifier:
     """Load and run a compatible pose-event action/safety checkpoint.
 
@@ -78,6 +85,12 @@ class BehaviorClassifier:
 
         self.model_path = str(path)
         self.device = requested
+        # Alert thresholds are only meaningful next to the scores the model
+        # actually produces. Without this, a clip that raises no alert is
+        # indistinguishable from one the classifier never scored at all.
+        self.prediction_count = 0
+        self.peak_probabilities: dict[str, float] = {}
+        self.secondary_peak_probabilities: dict[str, float] = {}
         self.feature_fps = float(feature_fps)
         self.min_valid_ratio = float(min_valid_ratio)
         self.min_window_coverage = float(min_window_coverage)
@@ -198,6 +211,10 @@ class BehaviorClassifier:
                 secondary_valid_ratio = float(secondary.valid_ratio)
                 secondary_window_seconds = float(secondary.window_seconds)
                 secondary_inference_ms = float(secondary.inference_ms)
+
+        self.prediction_count += 1
+        _record_peaks(self.peak_probabilities, prediction.action_probabilities)
+        _record_peaks(self.secondary_peak_probabilities, secondary_probabilities)
 
         return BehaviorPrediction(
             label=prediction.action_label,

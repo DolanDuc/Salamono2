@@ -93,6 +93,10 @@ class PostureConfig:
     secondary_behavior_enabled: bool = False
     secondary_behavior_model_path: str = "models/behavior/pose_event_v4_dual_norm_raw/best.pt"
     secondary_behavior_device: str = "auto"
+    # Confidence the smoking/phone classifier must reach before an alert is
+    # raised. Tunable because it is scenario-dependent: a gate camera sees
+    # hands clearly, a wide site view does not.
+    secondary_smoking_alert_threshold: float = 0.85
     behavior_min_valid_ratio: float = 0.45
     behavior_min_window_coverage: float = 0.70
     behavior_max_sample_gap_seconds: float = 0.50
@@ -389,6 +393,8 @@ def _from_env() -> AppConfig:
         cfg.posture.secondary_behavior_model_path = v
     if v := os.getenv("POSTURE_SECONDARY_BEHAVIOR_DEVICE"):
         cfg.posture.secondary_behavior_device = v
+    if v := os.getenv("POSTURE_SECONDARY_SMOKING_THRESHOLD"):
+        cfg.posture.secondary_smoking_alert_threshold = min(1.0, max(0.0, float(v)))
     if v := os.getenv("POSTURE_BEHAVIOR_MIN_VALID_RATIO"):
         cfg.posture.behavior_min_valid_ratio = min(1.0, max(0.0, float(v)))
     if v := os.getenv("POSTURE_BEHAVIOR_MIN_WINDOW_COVERAGE"):
