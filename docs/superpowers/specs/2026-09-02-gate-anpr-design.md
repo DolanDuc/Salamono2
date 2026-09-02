@@ -36,9 +36,13 @@ W zakresie:
 - odczyt tablicy rejestracyjnej z confidence i ręczną korektą w panelu
 - dziennik przejazdów (JSONL) + panel przeglądania
 - raport CSV/JSON dla kierownictwa
-- retencja i tryb pseudonimizacji tablic (RODO)
 
 Poza zakresem, świadomie:
+
+- **compliance / RODO — odłożone decyzją z 02.09.2026.** Uwagi zaparkowane w vaulcie
+  (`4_perimetr/bramka-compliance-uwagi.md`), żeby nie blokowały budowy modułu.
+  Jedyny ślad w kodzie v1: `PassageRecord` ma pole na tryb zapisu tablicy, żeby
+  dołożenie pseudonimizacji było później zmianą configu, a nie migracją danych
 
 - **sterowanie szlabanem / kontrola dostępu** — inny produkt i inna odpowiedzialność
   prawna; system, który *otwiera bramę*, odpowiada za to, kogo wpuścił
@@ -168,9 +172,14 @@ class PassageRecord(BaseModel):
     plate_confidence: float               # 0.0–1.0
     plate_reads: int
     plate_corrected_by: str | None = None  # ślad korekty ręcznej w panelu
+    plate_storage: str = "plain"          # "plain" | "hashed" — patrz niżej
     thumbnail_url: str | None = None
     details: dict = {}                    # m.in. rejected_reads, track_id, czas w kadrze
 ```
+
+`plate_storage` w v1 jest zawsze `"plain"` i nic nie robi. Istnieje wyłącznie po to, żeby
+włączenie pseudonimizacji w przyszłości było zmianą konfiguracji, a nie migracją
+istniejących rekordów. Koszt teraz: jedno pole.
 
 Persystencja: `data/passages.jsonl`, append-only, cache ostatnich rekordów w RAM —
 dokładnie wzór `AlertStore` z `backend/alert_storage.py`.
@@ -203,8 +212,6 @@ reszta to liczniki.
 | `GATE_MIN_PLATE_BOX_PX` | `120` | minimalny bok bboxa, by w ogóle czytać |
 | `GATE_CLOSE_AFTER_SEC` | `3.0` | ile bez tracka przed zamknięciem zdarzenia |
 | `GATE_MAX_PASSAGE_SEC` | `120.0` | twardy limit trwania jednego przejazdu |
-| `GATE_RETENTION_DAYS` | `30` | retencja miniatur i (opcjonalnie) tablic |
-| `GATE_PLATE_STORAGE` | `plain` | `plain` \| `hashed` |
 
 ## Obsługa błędów
 
@@ -230,19 +237,14 @@ detektor — **nie ładujemy modeli w testach**, ani YOLO, ani ONNX.
   filtry dziennika, `PATCH` korekty
 - `tools/simulate_gate.py` — odtwarzanie nagrania z bramy zamiast sprzętu
 
-## RODO
+## RODO — odłożone
 
-Numer rejestracyjny pośrednio identyfikuje osobę, więc jest daną osobową. W module,
-nie w dokumentacji obok:
+Numer rejestracyjny pośrednio identyfikuje osobę, więc jest daną osobową, i moduł
+docelowo będzie potrzebował retencji, podstawy prawnej, obowiązku informacyjnego
+i umowy powierzenia. **Świadomie odłożone decyzją z 02.09.2026** — nie blokuje budowy.
 
-- `GATE_RETENTION_DAYS` — zadanie czyszczące usuwa miniatury po terminie
-- `GATE_PLATE_STORAGE=hashed` — zapisujemy wyłącznie HMAC numeru. Nadal da się
-  policzyć „ten sam pojazd wjechał dziś 5×", bez przechowywania samego numeru
-- treść tabliczki informacyjnej przy bramie (obowiązek informacyjny) → do
-  `4_perimetr/regulations.md` w vaulcie
-
-Dla klienta, który kupuje od nas compliance-by-design, to jest argument sprzedażowy,
-a nie koszt.
+Uwagi zaparkowane w vaulcie: `4_perimetr/bramka-compliance-uwagi.md`.
+Odmrozić przed podpisaniem pierwszej umowy pilotażowej z odczytem tablic.
 
 ## Ograniczenia, które trzeba zakomunikować Atlasowi przed wdrożeniem
 
